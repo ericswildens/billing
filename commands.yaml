@@ -3,8 +3,9 @@ commands:
   awsbill:
     sourcePath: /awsbill.js
     description: Shows your AWS bill
-    options:
-      - name: detail
+    parameters:
+      - name: month_year
+        optional: true
   datadogbill:
     sourcePath: /datadogbill.js
     description: Shows your Datadog bill
