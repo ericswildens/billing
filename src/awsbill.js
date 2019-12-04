@@ -1,32 +1,52 @@
-// jshint esversion: 8
+// jshint esversion: 9
 
-function main(params) {
+/**
+ * @description null
+ * @param {ParamsType} params list of command parameters
+ * @param {?string} commandText slack text message
+ * @param {!object} [secrets = {}] list of secrets
+ * @return {Promise<SlackBodyType>} Slack response body
+ */
+async function _command(params, commandText, secrets = {}) {
+  const {
+    month_year
+  } = params;
+
   AWS = require('aws-sdk');
   
-  if (!params.__secrets || !params.__secrets.awsCostExplorerAccessKeyId || !params.__secrets.awsCostExplorerSecretAccessKey ||
-    !params.__secrets.awsCostExplorerRegion) {
-    return { body: { text: "You must create secrets for awsCostExplorerAccessKeyId, awsCostExplorerSecretAccessKeyId " +
-      "and awsCostExporerRegion to use this command " } };
+  if (!secrets.awsCostExplorerAccessKeyId || !secrets.awsCostExplorerSecretAccessKey || !secrets.awsCostExplorerRegion) {
+    return { response_type: 'ephemeral', text: "You must create secrets for awsCostExplorerAccessKeyId, awsCostExplorerSecretAccessKeyId " +
+      "and awsCostExporerRegion to use this command " };
   }
 
-  var costexplorer = new AWS.CostExplorer({
-    accessKeyId: params.__secrets.awsCostExplorerAccessKeyId,
-    secretAccessKey: params.__secrets.awsCostExplorerSecretAccessKey,
-    region: params.__secrets.awsCostExplorerRegion
-  });
-  
-  // determine billing period start/end. toISOString() is UTC (GMT) time, which is what AWS bills in
   let now = new Date();
-  let firstOfThisMonth = new Date(now.getUTCFullYear(), now.getUTCMonth(), 1);
+  let month = now.getUTCMonth();
+  let year = now.getUTCFullYear();
+  if (month_year != null) {
+    let arr = month_year.split('/');
+    if (arr.length != 2) {
+      return { response_type: 'ephemeral', text: 'Invalid month/year. Example: 11/2019 for November 2019' };
+    }
+    month = parseInt(arr[0]) - 1;
+    year = parseInt(arr[1]);
+  }
+  // determine billing period start/end. toISOString() is UTC (GMT) time, which is what AWS bills in
+  let firstOfThisMonth = new Date(year, month, 1);
   let firstOfNextMonth;
-  if (now.getMonth() != 12) {
-    firstOfNextMonth = new Date(now.getUTCFullYear(), now.getUTCMonth() + 1, 1);
+  if (month != 12) {
+    firstOfNextMonth = new Date(year, month + 1, 1);
   } else {
-    firstOfNextMonth = new Date(now.getUTCFullYear() + 1, 1, 1);
+    firstOfNextMonth = new Date(year + 1, 1, 1);
   }
   let start = firstOfThisMonth.toISOString().substring(0, 10);
   let end = firstOfNextMonth.toISOString().substring(0, 10);
-
+  
+  var costexplorer = new AWS.CostExplorer({
+    accessKeyId: secrets.awsCostExplorerAccessKeyId,
+    secretAccessKey: secrets.awsCostExplorerSecretAccessKey,
+    region: secrets.awsCostExplorerRegion
+  });
+  
   var costParams = {
     "TimePeriod" : {
       "Start" : start,
@@ -39,7 +59,7 @@ function main(params) {
 
   return costexplorer.getCostAndUsage(costParams).promise().then(
     function(data) {
-
+      
       // for debugging:
       // console.log(JSON.stringify(data, null, 4));
 
@@ -95,11 +115,22 @@ function main(params) {
       // console.log("Month-to-date AWS charges: " + totalCostString);
       // console.log("Charges by service: " + byServiceString);
 
-      return { body: {  response_type: 'in_channel', text: "Month-to-date AWS charges: " + totalCostString + "\n\nCharges by service: " + byServiceString } };
+      return {
+        response_type: 'in_channel',
+        text: "AWS charges for " + (month + 1) + "/" + year + ": " + totalCostString + "\n\nCharges by service: " + byServiceString
+      };
     },
     function(error) {
-      // console.log(err);
-      return { body: {  response_type: 'in_channel', text: "Error: " + error } };
+      return { response_type: 'in_channel', text: "Error: " + error };
     }
   );
 }
+
+/**
+ * @typedef {object} SlackBodyType
+ * @property {string} text
+ * @property {'in_channel'|'ephemeral'} [response_type]
+ */
+
+const main = async ({__secrets = {}, commandText, ...params}) => ({body: await _command(params, commandText, __secrets)});
+module.exports = main;
