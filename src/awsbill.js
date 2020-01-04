@@ -1,7 +1,7 @@
-// jshint esversion: 9
+/// jshint esversion: 9
 
 /**
- * @description null
+ * @description Shows your AWS bill
  * @param {ParamsType} params list of command parameters
  * @param {?string} commandText slack text message
  * @param {!object} [secrets = {}] list of secrets
@@ -29,6 +29,9 @@ async function _command(params, commandText, secrets = {}) {
     }
     month = parseInt(arr[0]) - 1;
     year = parseInt(arr[1]);
+    if (month < 1 || month > 12 || year < 1900 || year > 2800) {
+      return { response_type: 'ephemeral', text: 'Month or year out of range. Example: 11/2019 for November 2019' };
+    }
   }
   // determine billing period start/end. toISOString() is UTC (GMT) time, which is what AWS bills in
   let firstOfThisMonth = new Date(year, month, 1);
@@ -63,7 +66,8 @@ async function _command(params, commandText, secrets = {}) {
       // for debugging:
       // console.log(JSON.stringify(data, null, 4));
 
-      let byServiceString = "";
+      let byServiceSection = { fields: [] };
+      byServiceSection.type = "section";
       let groups = data.ResultsByTime[0].Groups;
       let totalCost = 0.0;
       let unit;
@@ -81,6 +85,8 @@ async function _command(params, commandText, secrets = {}) {
         serviceName = serviceName.replace("Amazon ", "");
         serviceName = serviceName.replace("Amazon", "");
         serviceName = serviceName.replace("AWS", "");
+        serviceName = serviceName.replace("Elastic Compute Cloud", "Elastic Compute");
+        serviceName = serviceName.replace("EC2 Container Registry (ECR)", "EC2 Container Registry");
 
         totalCost += cost;
         let thisUnit  = groups[i].Metrics.AmortizedCost.Unit;
@@ -89,10 +95,7 @@ async function _command(params, commandText, secrets = {}) {
         } else {
           costInUnits = cost.toFixed(2) + " " + thisUnit;
         }
-        if (n > 0) {
-          byServiceString += ", ";
-        }
-        byServiceString += serviceName + " " + costInUnits;
+        byServiceSection.fields[n] = { "type": "mrkdwn", "text": costInUnits + " *" + serviceName + "*" };
         if (unit != null && unit != thisUnit) {
           hasMultipleUnits = 1;
         }
@@ -114,11 +117,30 @@ async function _command(params, commandText, secrets = {}) {
       // for debugging:
       // console.log("Month-to-date AWS charges: " + totalCostString);
       // console.log("Charges by service: " + byServiceString);
-
-      return {
-        response_type: 'in_channel',
-        text: "AWS charges for " + (month + 1) + "/" + year + ": " + totalCostString + "\n\nCharges by service: " + byServiceString
+      let month_names = [ "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" ];
+      let title = totalCostString + " ";
+      if (month_year != null) {
+        title += "*AWS Cost for " + month_names[month] + " " + year + "*";  
+      } else {
+        title += "*AWS Cost Month-to-Date*";
+      }
+      let response = {
+       response_type: 'in_channel',
+       "blocks": [
+        {
+         "type": "section",
+         "text": {
+          "type": "mrkdwn",
+          "text": title
+         }
+        },
+        {
+         "type": "divider"
+        },
+        byServiceSection
+       ]
       };
+	  return response;
     },
     function(error) {
       return { response_type: 'in_channel', text: "Error: " + error };
